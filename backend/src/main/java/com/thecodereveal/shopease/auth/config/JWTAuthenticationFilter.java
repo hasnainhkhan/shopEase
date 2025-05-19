@@ -8,7 +8,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.web.authentication.WebAuthenticationDetails;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -18,40 +18,50 @@ public class JWTAuthenticationFilter extends OncePerRequestFilter {
     private final UserDetailsService userDetailsService;
     private final JWTTokenHelper jwtTokenHelper;
 
-    public JWTAuthenticationFilter(JWTTokenHelper jwtTokenHelper,UserDetailsService userDetailsService) {
+    public JWTAuthenticationFilter(JWTTokenHelper jwtTokenHelper, UserDetailsService userDetailsService) {
         this.jwtTokenHelper = jwtTokenHelper;
         this.userDetailsService = userDetailsService;
     }
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
+    protected void doFilterInternal(HttpServletRequest request,
+                                    HttpServletResponse response,
+                                    FilterChain filterChain) throws ServletException, IOException {
 
-            String authHeader = request.getHeader("Authorization");
+        String authHeader = request.getHeader("Authorization");
 
-            if(null == authHeader || !authHeader.startsWith("Bearer")){
-                filterChain.doFilter(request,response);
-                return;
-            }
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
 
-            try{
-                String authToken = jwtTokenHelper.getToken(request);
-                if(null != authToken){
-                    String userName = jwtTokenHelper.getUserNameFromToken(authToken);
-                    if(null != userName){
-                        UserDetails userDetails= userDetailsService.loadUserByUsername(userName);
+        try {
+            // Extract token after "Bearer "
+            String authToken = authHeader.substring(7);
 
-                        if(jwtTokenHelper.validateToken(authToken,userDetails)) {
-                            UsernamePasswordAuthenticationToken authenticationToken = new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
-                            authenticationToken.setDetails(new WebAuthenticationDetails(request));
+            String username = jwtTokenHelper.getUsernameFromToken(authToken);
 
-                            SecurityContextHolder.getContext().setAuthentication(authenticationToken);
-                        }
-                    }
+            if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
 
+                UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+
+                if (jwtTokenHelper.validateToken(authToken, userDetails.getUsername())) {
+
+                    UsernamePasswordAuthenticationToken authenticationToken =
+                            new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
+
+                    authenticationToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+
+                    SecurityContextHolder.getContext().setAuthentication(authenticationToken);
                 }
-                filterChain.doFilter(request, response);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
             }
+
+        } catch (Exception e) {
+            // Optionally log the error here
+            System.out.println("JWT authentication failed: " + e.getMessage());
+            // You can send error response or proceed without authentication
+        }
+
+        filterChain.doFilter(request, response);
     }
 }
